@@ -91,6 +91,174 @@ env = { "DATABASE_URL" = "postgresql://..." }
 - **Error Handling**: Graceful handling of server failures
 - **Security**: Sandboxed execution of MCP tool calls
 
+## Managing Multiple MCP Clients
+
+### Client Lifecycle Management
+
+Codex manages multiple MCP clients through the `McpConnectionManager` which:
+1. **Spawns** clients concurrently for all configured servers
+2. **Initializes** each client with proper capabilities
+3. **Maintains** active connections for the session lifetime
+4. **Handles** failures gracefully with error reporting
+
+### Connection Pooling and Concurrency
+
+- **Concurrent Startup**: All MCP servers are started concurrently for faster initialization
+- **Connection Reuse**: Active clients are reused across tool calls within a session
+- **Timeout Handling**: Configurable timeouts for server responses
+- **Resource Management**: Proper cleanup of connections when sessions end
+
+### Server Name Resolution
+
+Each MCP server is identified by a unique name from the configuration:
+```toml
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem"]
+```
+
+The system resolves tool calls using the fully-qualified name format: `server_name__tool_name`
+
+### Communication Protocol
+
+#### Tool Call Flow
+1. **Tool Resolution**: Codex identifies the correct server based on tool name
+2. **Message Serialization**: Arguments are serialized to JSON
+3. **Network Communication**: Tool call sent via stdio to the MCP server
+4. **Result Processing**: Server response is parsed and returned to the model
+5. **Event Notification**: Begin/end events are sent to the session
+
+#### Example Communication Flow
+```mermaid
+sequenceDiagram
+    participant Model
+    participant Codex
+    participant MCP_Server
+    
+    Model->>Codex: Tool call: github__list_issues
+    Codex->>MCP_Server: stdio call: list_issues
+    MCP_Server->>Codex: JSON response
+    Codex->>Model: Processed result
+```
+
+### Error Handling and Recovery
+
+#### Connection Failures
+- **Startup Failures**: Failed servers are logged but don't prevent other servers from starting
+- **Runtime Failures**: Individual tool calls fail gracefully with error messages
+- **Timeout Handling**: Requests that exceed timeout limits are cancelled
+
+#### Retry Logic
+- **Automatic Retries**: Failed tool calls may be retried based on server configuration
+- **Backoff Strategy**: Exponential backoff for repeated failures
+- **Fallback Mechanisms**: Alternative approaches when primary servers fail
+
+## Communication Patterns
+
+### Synchronous Communication
+Most MCP tool calls are synchronous:
+- Request is sent to the MCP server
+- Response is awaited before continuing
+- Timeout limits prevent hanging operations
+
+### Asynchronous Communication
+For long-running operations:
+- Events are streamed back to the session
+- Progress updates are provided in real-time
+- Results are collected and returned when complete
+
+### Streaming Support
+
+Some MCP servers support streaming responses:
+- **Progress Updates**: Real-time status updates
+- **Partial Results**: Intermediate results during long operations
+- **Error Notifications**: Immediate error reporting
+
+### Security Considerations
+
+#### Isolation
+- Each MCP server runs in its own process space
+- Network access is controlled by sandbox policies
+- File system access is restricted by configuration
+
+#### Authentication
+- Environment variables are used for sensitive credentials
+- Token-based authentication for external services
+- Secure credential handling throughout the pipeline
+
+### Performance Optimization
+
+#### Caching Strategies
+- **Tool Metadata**: Cached tool definitions to avoid repeated queries
+- **Server Capabilities**: Cached server capabilities for faster resolution
+- **Resource Information**: Cached resource listings for frequent access
+
+#### Lazy Initialization
+- Servers are only started when needed
+- Tool lists are fetched on-demand
+- Connections are established only when required
+
+### Monitoring and Debugging
+
+#### Logging
+- **Connection Events**: Server startup/shutdown events
+- **Tool Calls**: Detailed logs of tool invocations
+- **Errors**: Comprehensive error reporting with stack traces
+
+#### Metrics Collection
+- **Response Times**: Performance metrics for each tool call
+- **Success Rates**: Availability statistics for each server
+- **Resource Usage**: Memory and CPU consumption tracking
+
+### Configuration Best Practices
+
+#### Server Selection
+- **Minimal Permissions**: Configure servers with least privilege
+- **Environment Isolation**: Separate environments for different use cases
+- **Health Checks**: Monitor server availability regularly
+
+#### Resource Management
+- **Memory Limits**: Set appropriate memory constraints
+- **Timeout Values**: Configure reasonable timeout thresholds
+- **Retry Policies**: Define appropriate retry strategies
+
+### Advanced Usage Patterns
+
+#### Multi-Server Coordination
+Multiple MCP servers can work together:
+- **Data Aggregation**: Combine results from multiple sources
+- **Cross-Server Operations**: Complex workflows spanning multiple servers
+- **Conditional Execution**: Choose servers based on context or conditions
+
+#### Dynamic Server Management
+- **Runtime Addition**: Servers can be added during session
+- **Configuration Updates**: Hot reload of server configurations
+- **Server Replacement**: Seamless replacement of failing servers
+
+### Troubleshooting Guide
+
+#### Common Issues
+1. **Server Not Found**: Verify server name in configuration
+2. **Permission Denied**: Check file permissions and environment variables
+3. **Connection Timeout**: Increase timeout values or optimize server performance
+4. **Tool Not Found**: Verify tool name and server connectivity
+
+#### Diagnostic Commands
+```bash
+# Check available tools
+codex --config mcp_servers.debug.command="echo debug"
+
+# Enable verbose logging
+RUST_LOG=mcp=debug codex
+
+# Test specific server
+codex --config mcp_servers.test.command="your-test-command"
+```
+
 ## MCP Server Mode
 
 ### Running as MCP Server
