@@ -209,3 +209,69 @@ EOF
 
 # Use profile
 codex --profile security-audit "Audit for security vulnerabilities"
+```
+
+## Binary Renaming Behavior
+
+Codex is designed to be compiled as a single binary that can behave differently based on how it's invoked. This is achieved through the "arg0 trick" which allows a single binary to serve multiple purposes.
+
+### How It Works
+
+The main `codex` binary can be renamed to different names and will behave differently based on its invocation name:
+
+1. **`codex`** - Main CLI interface with all subcommands
+2. **`codex-linux-sandbox`** - Dedicated sandbox execution binary
+3. **`codex-apply-patch`** - Dedicated patch application binary
+
+### Binary Behaviors
+
+#### Main `codex` Binary
+When invoked as `codex`, it provides the full CLI interface with:
+- Interactive TUI mode
+- Headless execution (`exec` subcommand)
+- Debug modes (`debug` subcommand)
+- MCP server mode (`mcp` subcommand)
+- Configuration management
+- All other CLI subcommands
+
+#### `codex-linux-sandbox` Binary
+When invoked as `codex-linux-sandbox`, it bypasses the normal CLI dispatch and directly executes the Linux sandbox functionality:
+```bash
+# This is equivalent to:
+# codex debug landlock [command]
+# But runs with different security context
+```
+
+#### `codex-apply-patch` Binary
+When invoked as `codex-apply-patch`, it handles patch application directly:
+```bash
+# This is equivalent to:
+# codex exec --model o3 "apply_patch [patch-content]"
+# But optimized for patch application
+```
+
+### Practical Usage
+
+This design allows for:
+1. **Reduced binary size** - Single binary with multiple behaviors
+2. **Better security isolation** - Different execution contexts for different purposes
+3. **Simplified deployment** - One binary to manage instead of multiple
+4. **Optimized performance** - Direct execution paths for specialized tasks
+
+### Example Deployment
+
+```bash
+# Build the main binary
+cargo build --release
+
+# Create symbolic links for different behaviors
+ln -s target/release/codex codex-linux-sandbox
+ln -s target/release/codex codex-apply-patch
+
+# Use different behaviors
+./codex                    # Full CLI interface
+./codex-linux-sandbox      # Linux sandbox execution
+./codex-apply-patch        # Patch application
+```
+
+Note: This behavior is primarily intended for internal use and deployment scenarios. Users typically interact with the main `codex` binary.
